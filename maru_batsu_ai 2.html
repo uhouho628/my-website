@@ -1,0 +1,186 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>○×ゲーム - AI対戦モード</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
+    h1 { color: #333; }
+    #game { display: grid; grid-template-columns: repeat(3, 100px); grid-gap: 5px; margin: 20px auto; }
+    .cell {
+      width: 100px; height: 100px; font-size: 48px;
+      background: white; border: 2px solid #888;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #score, #ranking { margin-top: 20px; }
+    #controls { margin-top: 15px; }
+    select, input { font-size: 16px; padding: 4px; }
+  </style>
+</head>
+<body>
+  <h1>○×ゲーム（AI対戦）</h1>
+
+  <div id="setup">
+    <p>名前を入力：<input type="text" id="playerName" /></p>
+    <p>AIの強さ：
+      <select id="aiLevel">
+        <option value="easy">弱い</option>
+        <option value="normal" selected>普通</option>
+        <option value="hard">強い</option>
+      </select>
+    </p>
+    <button onclick="startGame()">ゲームスタート</button>
+  </div>
+
+  <div id="game" style="display:none;"></div>
+  <div id="controls" style="display:none;">
+    <button onclick="resetGame()">リセット</button>
+  </div>
+  <div id="score"></div>
+  <div id="ranking"></div>
+
+<script>
+  let board = Array(9).fill(null);
+  let currentPlayer = 'O';
+  let playerName = '';
+  let playerScore = { win: 0, lose: 0, draw: 0 };
+  let aiLevel = 'normal';
+
+  function startGame() {
+    playerName = document.getElementById('playerName').value.trim();
+    if (!playerName) return alert('名前を入力してください');
+    aiLevel = document.getElementById('aiLevel').value;
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('game').style.display = 'grid';
+    document.getElementById('controls').style.display = 'block';
+    drawBoard();
+    updateScore();
+    showRanking();
+  }
+
+  function drawBoard() {
+    const game = document.getElementById('game');
+    game.innerHTML = '';
+    board.forEach((cell, i) => {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      div.innerText = cell || '';
+      div.onclick = () => handleClick(i);
+      game.appendChild(div);
+    });
+  }
+
+  function handleClick(i) {
+    if (board[i] || checkWinner(board)) return;
+    board[i] = 'O';
+    drawBoard();
+    if (checkEnd()) return;
+    setTimeout(() => {
+      aiMove();
+      drawBoard();
+      checkEnd();
+    }, 300);
+  }
+
+  function aiMove() {
+    let move;
+    if (aiLevel === 'easy') {
+      const empty = board.map((v, i) => v ? null : i).filter(v => v !== null);
+      move = empty[Math.floor(Math.random() * empty.length)];
+    } else if (aiLevel === 'hard') {
+      move = bestMove();
+    } else {
+      move = bestMove(0.6); // normal strength
+    }
+    if (move !== undefined) board[move] = 'X';
+  }
+
+  function checkWinner(b) {
+    const lines = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+    for (const [a,b1,c] of lines) {
+      if (board[a] && board[a] === board[b1] && board[a] === board[c]) return board[a];
+    }
+    return null;
+  }
+
+  function checkEnd() {
+    const winner = checkWinner(board);
+    if (winner) {
+      if (winner === 'O') { alert('勝ちました！'); playerScore.win++; }
+      else { alert('負けました！'); playerScore.lose++; }
+      updateScore();
+      saveRanking();
+      board = Array(9).fill(null);
+      drawBoard();
+      return true;
+    } else if (board.every(c => c)) {
+      alert('引き分けです');
+      playerScore.draw++;
+      updateScore();
+      saveRanking();
+      board = Array(9).fill(null);
+      drawBoard();
+      return true;
+    }
+    return false;
+  }
+
+  function resetGame() {
+    board = Array(9).fill(null);
+    drawBoard();
+  }
+
+  function updateScore() {
+    document.getElementById('score').innerHTML =
+      `<h3>${playerName} さんのスコア</h3>
+       勝ち：${playerScore.win}｜負け：${playerScore.lose}｜引き分け：${playerScore.draw}`;
+  }
+
+  function saveRanking() {
+    let data = JSON.parse(localStorage.getItem('ranking') || '{}');
+    data[playerName] = playerScore;
+    localStorage.setItem('ranking', JSON.stringify(data));
+    showRanking();
+  }
+
+  function showRanking() {
+    let data = JSON.parse(localStorage.getItem('ranking') || '{}');
+    let entries = Object.entries(data).map(([name, score]) => {
+      const total = score.win + score.lose + score.draw;
+      const rate = total ? Math.round(score.win / total * 100) : 0;
+      return { name, win: score.win, total, rate };
+    });
+    entries.sort((a, b) => b.rate - a.rate);
+    const html = entries.map(e =>
+      `<li>${e.name}：勝率 ${e.rate}%（${e.win}/${e.total}）</li>`).join('');
+    document.getElementById('ranking').innerHTML =
+      `<h3>🏆 ランキング</h3><ol>${html}</ol>`;
+  }
+
+  function bestMove(prob=1) {
+    const empty = board.map((v, i) => v ? null : i).filter(v => v !== null);
+    if (Math.random() > prob) {
+      return empty[Math.floor(Math.random() * empty.length)];
+    }
+    // 勝てる or 防げる手を探す
+    for (let i of empty) {
+      let test = board.slice();
+      test[i] = 'X';
+      if (checkWinner(test) === 'X') return i;
+    }
+    for (let i of empty) {
+      let test = board.slice();
+      test[i] = 'O';
+      if (checkWinner(test) === 'O') return i;
+    }
+    return empty[Math.floor(Math.random() * empty.length)];
+  }
+</script>
+</body>
+</html>
